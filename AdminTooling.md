@@ -1,4 +1,4 @@
-# FoolsAdventure — Admin Tooling Design
+# FoolsAdmin — Admin Tooling Design
 
 > Detailed design for the in-game admin tools used to place content, configure quests,
 > manage NPCs, and protect world areas. Referenced from the main design document.
