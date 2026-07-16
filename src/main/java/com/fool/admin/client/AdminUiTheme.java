@@ -39,11 +39,19 @@ public final class AdminUiTheme {
     public static final int BRUSH_WAYPOINT = 0xCC81C784;
     public static final int DRAFT_HIGHLIGHT = 0xFFC9A227;
 
+    public static final int DIALOGUE_DIM = 0xAA000000;
+    public static final int DIALOGUE_PANEL = 0xCC1A1714;
+    public static final int DIALOGUE_DIVIDER = 0xFF6A5E52;
+    public static final int DIALOGUE_NPC_TEXT = 0xFFFFB74D;
+    public static final int DIALOGUE_PLAYER_TEXT = 0xFFF2E8D5;
+    public static final int DIALOGUE_CHOICE_TEXT = 0xFFFFD54F;
+
     public static final int SPAWN_MARKER_RADIUS = 1;
     public static final int WAYPOINT_MARKER_RADIUS = 3;
     public static final int ATTRACTION_MARKER_RADIUS = 3;
 
     public static final int NAV_WIDTH = 108;
+    public static final int CAMPAIGN_SIDEBAR_WIDTH = 132;
     public static final int INSPECTOR_WIDTH = 240;
     public static final int INSPECTOR_GAP = 12;
     public static final int INSPECTOR_HEADER_HEIGHT = 22;

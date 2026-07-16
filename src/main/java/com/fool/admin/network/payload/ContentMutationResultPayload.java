@@ -2,8 +2,8 @@ package com.fool.admin.network.payload;
 
 import com.fool.admin.FoolsAdmin;
 import com.fool.admin.content.BossDefinition;
-import com.fool.admin.content.DialogueDefinition;
 import com.fool.admin.content.NpcDefinition;
+import com.fool.admin.content.QuestPoint;
 import io.netty.buffer.ByteBuf;
 import net.minecraft.network.codec.ByteBufCodecs;
 import net.minecraft.network.codec.StreamCodec;
@@ -16,7 +16,7 @@ public record ContentMutationResultPayload(
         @Nullable String errorCode,
         @Nullable BossDefinition boss,
         @Nullable NpcDefinition npc,
-        @Nullable DialogueDefinition dialogue,
+        @Nullable QuestPoint quest,
         @Nullable String deletedId
 ) implements CustomPacketPayload {
     public static final Type<ContentMutationResultPayload> TYPE =
@@ -28,7 +28,7 @@ public record ContentMutationResultPayload(
     public static final StreamCodec<ByteBuf, NpcDefinition> OPTIONAL_NPC_CODEC = ByteBufCodecs.optional(ContentPayloadCodecs.NPC_CODEC)
             .map(optional -> optional.orElse(null), value -> java.util.Optional.ofNullable(value));
 
-    public static final StreamCodec<ByteBuf, DialogueDefinition> OPTIONAL_DIALOGUE_CODEC = ByteBufCodecs.optional(ContentPayloadCodecs.DIALOGUE_CODEC)
+    public static final StreamCodec<ByteBuf, QuestPoint> OPTIONAL_QUEST_CODEC = ByteBufCodecs.optional(ContentPayloadCodecs.QUEST_CODEC)
             .map(optional -> optional.orElse(null), value -> java.util.Optional.ofNullable(value));
 
     public static final StreamCodec<ByteBuf, ContentMutationResultPayload> STREAM_CODEC = StreamCodec.composite(
@@ -36,14 +36,14 @@ public record ContentMutationResultPayload(
             ByteBufCodecs.STRING_UTF8, payload -> payload.errorCode() == null ? "" : payload.errorCode(),
             OPTIONAL_BOSS_CODEC, ContentMutationResultPayload::boss,
             OPTIONAL_NPC_CODEC, ContentMutationResultPayload::npc,
-            OPTIONAL_DIALOGUE_CODEC, ContentMutationResultPayload::dialogue,
+            OPTIONAL_QUEST_CODEC, ContentMutationResultPayload::quest,
             ByteBufCodecs.STRING_UTF8, payload -> payload.deletedId() == null ? "" : payload.deletedId(),
-            (success, errorCode, boss, npc, dialogue, deletedId) -> new ContentMutationResultPayload(
+            (success, errorCode, boss, npc, quest, deletedId) -> new ContentMutationResultPayload(
                     success,
                     errorCode.isBlank() ? null : errorCode,
                     boss,
                     npc,
-                    dialogue,
+                    quest,
                     deletedId.isBlank() ? null : deletedId
             )
     );

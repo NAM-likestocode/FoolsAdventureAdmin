@@ -1,15 +1,17 @@
 package com.fool.admin.client.screen;
 
 import com.fool.admin.client.AdminUiTheme;
+import com.fool.admin.client.content.AdminQuestTool;
 import com.fool.admin.client.content.AdminTab;
 import com.fool.admin.client.content.ClientAdminContentController;
 import com.fool.admin.client.map.AdminMapTextureCache;
 import com.fool.admin.client.map.ClientAdminMapController;
 import com.fool.admin.content.AdminContentConstants;
 import com.fool.admin.content.BossDefinition;
-import com.fool.admin.content.DialogueDefinition;
-import com.fool.admin.content.DialogueLine;
+import com.fool.admin.content.Campaign;
 import com.fool.admin.content.NpcDefinition;
+import com.fool.admin.content.QuestObjectiveType;
+import com.fool.admin.content.QuestPoint;
 import com.fool.admin.content.Waypoint;
 import com.fool.admin.network.payload.ContentMutationResultPayload;
 import com.fool.admin.network.payload.ContentSnapshotPayload;
@@ -20,6 +22,7 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.Checkbox;
 import net.minecraft.client.gui.components.EditBox;
+import net.minecraft.client.gui.components.MultiLineEditBox;
 import net.minecraft.client.gui.components.events.GuiEventListener;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.input.CharacterEvent;
@@ -42,14 +45,20 @@ public class AdminScreen extends Screen {
     private final AdminMapTextureCache textureCache;
     private final ClientAdminMapController mapController;
     private final ClientAdminContentController contentController;
-    private AdminMapWidget mapWidget;
+    private @Nullable AdminMapWidget mapWidget;
+    private @Nullable QuestGraphWidget questGraphWidget;
     private AdminMapWidget.MapViewState viewState;
+    private QuestGraphWidget.GraphViewState questViewState = new QuestGraphWidget.GraphViewState(0.0D, 0.0D, 1.0D);
+    private final java.util.Map<String, QuestGraphWidget.GraphViewState> campaignViewStates = new java.util.HashMap<>();
     private @Nullable AdminInspectorScrollPanel inspectorPanel;
     private @Nullable EditBox nameBox;
     private @Nullable EditBox entityTypeBox;
+    private @Nullable EditBox requiredItemBox;
+    private @Nullable EditBox campaignNameBox;
+    private @Nullable MultiLineEditBox questScriptBox;
     private @Nullable AdminMapToolDock mapToolDock;
-    private final List<EditBox> dialogueLineBoxes = new ArrayList<>();
     private double inspectorScroll;
+    private boolean showCampaignUnlockChooser;
 
     public AdminScreen(OpenAdminScreenPayload openPayload) {
         super(Component.translatable("foolsadmin.admin.title"));
@@ -82,6 +91,8 @@ public class AdminScreen extends Screen {
     }
 
     private record ScreenLayout(
+            int campaignX,
+            int campaignWidth,
             int mapX,
             int mapY,
             int mapWidth,
@@ -99,7 +110,10 @@ public class AdminScreen extends Screen {
         int mapY = mapY();
         int contentBottom = height - AdminUiTheme.STATUS_HEIGHT;
         int mapHeight = contentBottom - mapY - AdminUiTheme.PANEL_PADDING;
-        int mapX = mapX();
+        boolean campaignsOpen = contentController.activeTab() == AdminTab.QUESTS;
+        int campaignX = mapX();
+        int campaignWidth = campaignsOpen ? AdminUiTheme.CAMPAIGN_SIDEBAR_WIDTH : 0;
+        int mapX = campaignX + campaignWidth + (campaignsOpen ? AdminUiTheme.INSPECTOR_GAP : 0);
 
         boolean inspectorOpen = contentController.activeTab() != AdminTab.MAP;
         int inspectorWidth = inspectorOpen ? AdminUiTheme.INSPECTOR_WIDTH : 0;
@@ -113,6 +127,8 @@ public class AdminScreen extends Screen {
                 : width - AdminUiTheme.PANEL_PADDING - mapX;
 
         return new ScreenLayout(
+                campaignX,
+                campaignWidth,
                 mapX,
                 mapY,
                 Math.max(1, mapWidth),
@@ -138,26 +154,70 @@ public class AdminScreen extends Screen {
         clearWidgets();
         nameBox = null;
         entityTypeBox = null;
-        dialogueLineBoxes.clear();
+        requiredItemBox = null;
+        campaignNameBox = null;
+        questScriptBox = null;
         inspectorPanel = null;
         mapToolDock = null;
+        questGraphWidget = null;
 
         ScreenLayout layout = layout();
 
-        mapWidget = new AdminMapWidget(
-                layout.mapX(),
-                layout.mapY(),
-                layout.mapWidth(),
-                layout.mapHeight(),
-                mapController,
-                contentController,
-                viewState.centerX(),
-                viewState.centerZ(),
-                state -> viewState = state
-        );
-        mapWidget.applyViewState(viewState);
-        mapWidget.setPlayerPosition(openPayload.playerBlockX(), openPayload.playerBlockZ(), openPayload.playerYaw());
-        addRenderableWidget(mapWidget);
+        if (contentController.activeTab() == AdminTab.QUESTS) {
+            String campaignId = contentController.selectedCampaignId();
+            if (campaignId != null) {
+                questViewState = campaignViewStates.getOrDefault(campaignId, questViewState);
+            }
+            questGraphWidget = new QuestGraphWidget(
+                    layout.mapX(),
+                    layout.mapY(),
+                    layout.mapWidth(),
+                    layout.mapHeight(),
+                    contentController,
+                    questViewState,
+                    state -> {
+                        questViewState = state;
+                        if (contentController.selectedCampaignId() != null) {
+                            campaignViewStates.put(contentController.selectedCampaignId(), state);
+                        }
+                    }
+            );
+            questGraphWidget.applyViewState(questViewState);
+            addRenderableWidget(questGraphWidget);
+            addCampaignSidebar(layout);
+            Campaign campaign = contentController.selectedCampaign();
+            if (campaign != null) {
+                campaignNameBox = new EditBox(font, layout.mapX(), AdminUiTheme.HEADER_HEIGHT + 3, 150, 18, Component.empty());
+                campaignNameBox.setValue(campaign.name());
+                campaignNameBox.setResponder(contentController::setCampaignName);
+                addRenderableWidget(campaignNameBox);
+                addRenderableWidget(new AdminActionButton(
+                        layout.mapX() + 154,
+                        AdminUiTheme.HEADER_HEIGHT + 3,
+                        48,
+                        18,
+                        Component.literal("Save"),
+                        false,
+                        false,
+                        contentController::saveSelectedCampaign
+                ));
+            }
+        } else {
+            mapWidget = new AdminMapWidget(
+                    layout.mapX(),
+                    layout.mapY(),
+                    layout.mapWidth(),
+                    layout.mapHeight(),
+                    mapController,
+                    contentController,
+                    viewState.centerX(),
+                    viewState.centerZ(),
+                    state -> viewState = state
+            );
+            mapWidget.applyViewState(viewState);
+            mapWidget.setPlayerPosition(openPayload.playerBlockX(), openPayload.playerBlockZ(), openPayload.playerYaw());
+            addRenderableWidget(mapWidget);
+        }
 
         addNavButton(AdminUiTheme.HEADER_HEIGHT + 40, "foolsadmin.admin.nav.map", AdminTab.MAP);
         addNavButton(AdminUiTheme.HEADER_HEIGHT + 58, "foolsadmin.admin.nav.bosses", AdminTab.BOSSES);
@@ -168,6 +228,9 @@ public class AdminScreen extends Screen {
 
         if (contentController.activeTab() == AdminTab.BOSSES || contentController.activeTab() == AdminTab.NPCS) {
             addMapToolDock(layout);
+        }
+        if (contentController.activeTab() == AdminTab.QUESTS) {
+            addQuestToolButtons(layout);
         }
 
         if (contentController.activeTab() != AdminTab.MAP) {
@@ -191,6 +254,56 @@ public class AdminScreen extends Screen {
             inspectorScroll = inspectorPanel.scroll();
             addRenderableWidget(inspectorPanel);
         }
+    }
+
+    private void addCampaignSidebar(ScreenLayout layout) {
+        int x = layout.campaignX();
+        int y = layout.mapY() + 18;
+        addRenderableWidget(new AdminActionButton(
+                x,
+                y,
+                layout.campaignWidth(),
+                20,
+                Component.literal("+ Campaign"),
+                false,
+                false,
+                () -> {
+                    contentController.createCampaign();
+                    refreshAdminUi();
+                }
+        ));
+        y += 28;
+        for (Campaign campaign : contentController.campaigns()) {
+            boolean selected = campaign.id().equals(contentController.selectedCampaignId());
+            addRenderableWidget(new AdminTextButton(
+                    x + 2,
+                    y,
+                    layout.campaignWidth() - 4,
+                    18,
+                    Component.literal(campaign.name()),
+                    selected,
+                    false,
+                    () -> {
+                        contentController.selectCampaign(campaign.id());
+                        showCampaignUnlockChooser = false;
+                        refreshAdminUi();
+                    }
+            ));
+            y += 20;
+        }
+        addRenderableWidget(new AdminActionButton(
+                x,
+                layout.contentBottom() - 26,
+                layout.campaignWidth(),
+                20,
+                Component.literal("Delete Campaign"),
+                true,
+                false,
+                () -> {
+                    contentController.deleteSelectedCampaign();
+                    refreshAdminUi();
+                }
+        ));
     }
 
     private void addNavButton(int y, String translationKey, AdminTab tab) {
@@ -227,11 +340,28 @@ public class AdminScreen extends Screen {
         int minusX = recenterX - gap - zoomButtonWidth;
         int plusX = minusX - gap - zoomButtonWidth;
 
-        addRenderableWidget(new AdminActionButton(plusX, buttonY, zoomButtonWidth, buttonHeight, Component.literal("+"), false, false, () ->
-                mapWidget.zoomBy(0.85D, mapWidget.getX() + mapWidget.getWidth() / 2.0D, mapWidget.getY() + mapWidget.getHeight() / 2.0D)));
-        addRenderableWidget(new AdminActionButton(minusX, buttonY, zoomButtonWidth, buttonHeight, Component.literal("-"), false, false, () ->
-                mapWidget.zoomBy(1.15D, mapWidget.getX() + mapWidget.getWidth() / 2.0D, mapWidget.getY() + mapWidget.getHeight() / 2.0D)));
-        addRenderableWidget(new AdminActionButton(recenterX, buttonY, recenterWidth, buttonHeight, Component.translatable("foolsadmin.admin.recenter"), false, false, mapWidget::recenterOnPlayer));
+        addRenderableWidget(new AdminActionButton(plusX, buttonY, zoomButtonWidth, buttonHeight, Component.literal("+"), false, false, () -> {
+            if (contentController.activeTab() == AdminTab.QUESTS && questGraphWidget != null) {
+                questGraphWidget.zoomBy(0.85D, questGraphWidget.getX() + questGraphWidget.getWidth() / 2.0D, questGraphWidget.getY() + questGraphWidget.getHeight() / 2.0D);
+            } else if (mapWidget != null) {
+                mapWidget.zoomBy(0.85D, mapWidget.getX() + mapWidget.getWidth() / 2.0D, mapWidget.getY() + mapWidget.getHeight() / 2.0D);
+            }
+        }));
+        addRenderableWidget(new AdminActionButton(minusX, buttonY, zoomButtonWidth, buttonHeight, Component.literal("-"), false, false, () -> {
+            if (contentController.activeTab() == AdminTab.QUESTS && questGraphWidget != null) {
+                questGraphWidget.zoomBy(1.15D, questGraphWidget.getX() + questGraphWidget.getWidth() / 2.0D, questGraphWidget.getY() + questGraphWidget.getHeight() / 2.0D);
+            } else if (mapWidget != null) {
+                mapWidget.zoomBy(1.15D, mapWidget.getX() + mapWidget.getWidth() / 2.0D, mapWidget.getY() + mapWidget.getHeight() / 2.0D);
+            }
+        }));
+        addRenderableWidget(new AdminActionButton(recenterX, buttonY, recenterWidth, buttonHeight, Component.translatable("foolsadmin.admin.recenter"), false, false, () -> {
+            if (contentController.activeTab() == AdminTab.QUESTS && questGraphWidget != null) {
+                questViewState = new QuestGraphWidget.GraphViewState(0.0D, 0.0D, 1.0D);
+                questGraphWidget.applyViewState(questViewState);
+            } else if (mapWidget != null) {
+                mapWidget.recenterOnPlayer();
+            }
+        }));
         addRenderableWidget(new AdminActionButton(cancelX, buttonY, cancelWidth, buttonHeight, Component.translatable("gui.cancel"), false, false, this::onClose));
     }
 
@@ -249,6 +379,23 @@ public class AdminScreen extends Screen {
                 }
         );
         addRenderableWidget(mapToolDock);
+    }
+
+    private void addQuestToolButtons(ScreenLayout layout) {
+        int buttonY = layout.contentBottom() - AdminUiTheme.STATUS_HEIGHT - 28;
+        int x = layout.mapX() + AdminUiTheme.PANEL_PADDING;
+        addRenderableWidget(new AdminActionButton(x, buttonY, 52, 20, Component.translatable("foolsadmin.admin.quest.tool.add"), false, contentController.activeQuestTool() == AdminQuestTool.ADD, () -> {
+            contentController.setActiveQuestTool(AdminQuestTool.ADD);
+            refreshAdminUi();
+        }));
+        addRenderableWidget(new AdminActionButton(x + 56, buttonY, 52, 20, Component.translatable("foolsadmin.admin.quest.tool.pan"), false, contentController.activeQuestTool() == AdminQuestTool.PAN, () -> {
+            contentController.setActiveQuestTool(AdminQuestTool.PAN);
+            refreshAdminUi();
+        }));
+        addRenderableWidget(new AdminActionButton(x + 112, buttonY, 52, 20, Component.translatable("foolsadmin.admin.quest.tool.link"), false, contentController.activeQuestTool() == AdminQuestTool.LINK, () -> {
+            contentController.setActiveQuestTool(AdminQuestTool.LINK);
+            refreshAdminUi();
+        }));
     }
 
     private void buildInspector(AdminInspectorScrollPanel panel, int panelWidth) {
@@ -269,7 +416,13 @@ public class AdminScreen extends Screen {
                     } else if (tab == AdminTab.NPCS) {
                         contentController.createNpcDraft(openPayload.playerBlockX(), openPayload.playerBlockZ());
                     } else if (tab == AdminTab.QUESTS) {
-                        contentController.createDialogueDraft();
+                        float canvasX = questGraphWidget != null ? questGraphWidget.centerCanvasX() : 0.0F;
+                        float canvasY = questGraphWidget != null ? questGraphWidget.centerCanvasY() : 0.0F;
+                        if (contentController.selectedCampaignId() == null) {
+                            contentController.createCampaign();
+                        } else {
+                            contentController.createQuestDraft(canvasX, canvasY);
+                        }
                     }
                     refreshAdminUi();
                 }
@@ -315,23 +468,107 @@ public class AdminScreen extends Screen {
                 y = buildNpcEditor(panel, y, panelWidth);
             }
         } else if (tab == AdminTab.QUESTS) {
-            for (DialogueDefinition dialogue : contentController.dialogues()) {
-                if (contentController.dialogueDraft() != null && dialogue.id().equals(contentController.selectedDialogueId())) {
+            if (contentController.selectedCampaignId() == null) {
+                panel.add(new AdminFieldLabel(0, y, panelWidth, Component.literal("Create or select a campaign to edit its quest points.")), y);
+                return;
+            }
+            Campaign campaign = contentController.selectedCampaign();
+            if (campaign != null) {
+                panel.add(new AdminFieldLabel(0, y, panelWidth, Component.literal("Campaign unlock requirements")), y);
+                y += 16;
+                int requirementCount = campaign.prerequisiteCampaignIds().size() + campaign.unlockAfterQuestKeys().size();
+                panel.add(new AdminActionButton(
+                        0,
+                        y,
+                        panelWidth,
+                        20,
+                        Component.literal(showCampaignUnlockChooser
+                                ? "Done choosing requirements"
+                                : "Choose requirements" + (requirementCount == 0 ? "" : " (" + requirementCount + ")")),
+                        false,
+                        showCampaignUnlockChooser,
+                        () -> {
+                            showCampaignUnlockChooser = !showCampaignUnlockChooser;
+                            refreshAdminUi();
+                        }
+                ), y);
+                y += 24;
+                if (showCampaignUnlockChooser) {
+                    int choiceCount = 0;
+                    for (Campaign candidate : contentController.campaigns()) {
+                        if (candidate.id().equals(campaign.id())) {
+                            continue;
+                        }
+                        choiceCount++;
+                        boolean required = campaign.prerequisiteCampaignIds().contains(candidate.id());
+                        panel.add(new AdminActionButton(
+                                0,
+                                y,
+                                panelWidth,
+                                20,
+                                Component.literal((required ? "[x] Finish " : "[ ] Finish ") + candidate.name()),
+                                false,
+                                required,
+                                () -> {
+                                    contentController.toggleCampaignPrerequisite(candidate.id());
+                                    refreshAdminUi();
+                                }
+                        ), y);
+                        y += 22;
+                    }
+                    for (Campaign questCampaign : contentController.campaigns()) {
+                        if (questCampaign.id().equals(campaign.id())) {
+                            continue;
+                        }
+                        for (QuestPoint unlockQuest : questCampaign.questPoints()) {
+                        choiceCount++;
+                        String key = questCampaign.id() + "/" + unlockQuest.id();
+                        boolean required = campaign.unlockAfterQuestKeys().contains(key);
+                        panel.add(new AdminActionButton(
+                                0,
+                                y,
+                                panelWidth,
+                                20,
+                                Component.literal((required ? "[x] Complete " : "[ ] Complete ") + unlockQuest.name()),
+                                false,
+                                required,
+                                () -> {
+                                    contentController.toggleCampaignUnlockQuest(questCampaign.id(), unlockQuest.id());
+                                    refreshAdminUi();
+                                }
+                        ), y);
+                        y += 22;
+                    }
+                    }
+                    if (choiceCount == 0) {
+                        panel.add(new AdminFieldLabel(
+                                0,
+                                y,
+                                panelWidth,
+                                Component.literal("Add another campaign or a quest point to choose an unlock requirement.")
+                        ), y);
+                        y += 18;
+                    }
+                }
+                y += 4;
+            }
+            for (QuestPoint quest : contentController.quests()) {
+                if (contentController.questDraft() != null && quest.id().equals(contentController.selectedQuestId())) {
                     continue;
                 }
-                addInspectorEntry(panel, y, panelWidth, dialogue.name(), () -> {
-                    contentController.selectDialogue(dialogue.id());
+                addInspectorEntry(panel, y, panelWidth, quest.name(), () -> {
+                    contentController.selectQuest(quest.id());
                     refreshAdminUi();
                 });
                 y += 18;
             }
-            if (contentController.dialogueDraft() != null) {
+            if (contentController.questDraft() != null) {
                 if (y > 26) {
                     y += 4;
                 }
                 panel.add(new AdminFieldLabel(0, y, panelWidth, Component.translatable("foolsadmin.admin.inspector.properties")), y);
                 y += 14;
-                y = buildDialogueEditor(panel, y, panelWidth);
+                y = buildQuestEditor(panel, y, panelWidth);
             }
         }
     }
@@ -423,22 +660,6 @@ public class AdminScreen extends Screen {
         panel.add(stationaryCheckbox, y);
         y += 24;
 
-        if (draft.dialogueId() != null) {
-            String dialogueName = contentController.dialogues().stream()
-                    .filter(dialogue -> draft.dialogueId().equals(dialogue.id()))
-                    .map(DialogueDefinition::name)
-                    .findFirst()
-                    .orElse(draft.dialogueId());
-            panel.add(new AdminFieldLabel(0, y, width, Component.translatable(
-                    "foolsadmin.admin.inspector.npc_dialogue",
-                    dialogueName
-            )), y);
-            y += 18;
-        } else {
-            panel.add(new AdminFieldLabel(0, y, width, Component.translatable("foolsadmin.admin.inspector.npc_dialogue_none")), y);
-            y += 18;
-        }
-
         if (!draft.waypoints().isEmpty()) {
             panel.add(new AdminFieldLabel(0, y, width, Component.translatable("foolsadmin.admin.inspector.waypoint_dwell")), y);
             y += 14;
@@ -478,8 +699,8 @@ public class AdminScreen extends Screen {
         return y + 26;
     }
 
-    private int buildDialogueEditor(AdminInspectorScrollPanel panel, int y, int width) {
-        DialogueDefinition draft = contentController.dialogueDraft();
+    private int buildQuestEditor(AdminInspectorScrollPanel panel, int y, int width) {
+        QuestPoint draft = contentController.questDraft();
         if (draft == null) {
             return y;
         }
@@ -489,76 +710,102 @@ public class AdminScreen extends Screen {
         nameBox = new EditBox(font, 0, y, width, 18, Component.empty());
         nameBox.setMaxLength(AdminContentConstants.MAX_DISPLAY_NAME_LENGTH);
         nameBox.setValue(draft.name());
-        nameBox.setResponder(contentController::setDialogueName);
+        nameBox.setResponder(contentController::setQuestName);
         panel.add(nameBox, y);
         y += 24;
 
-        panel.add(new AdminFieldLabel(0, y, width, Component.translatable("foolsadmin.admin.inspector.dialogue_lines")), y);
+        panel.add(new AdminFieldLabel(0, y, width, Component.translatable("foolsadmin.admin.inspector.quest_objective")), y);
         y += 14;
+        panel.add(new AdminActionButton(0, y, width, 20, Component.translatable(
+                "foolsadmin.admin.inspector.quest_objective_value",
+                Component.translatable("foolsadmin.admin.objective." + draft.objectiveType().name().toLowerCase())
+        ), false, false, contentController::cycleQuestObjectiveType), y);
+        y += 26;
 
-        for (int index = 0; index < draft.lines().size(); index++) {
-            DialogueLine line = draft.lines().get(index);
-            panel.add(new AdminFieldLabel(0, y, width, Component.translatable("foolsadmin.admin.inspector.dialogue_line", index + 1)), y);
-            y += 14;
-            final int lineIndex = index;
-            EditBox lineBox = new EditBox(font, 0, y, width, 18, Component.empty());
-            lineBox.setMaxLength(AdminContentConstants.MAX_DIALOGUE_LINE_LENGTH);
-            lineBox.setValue(line.text());
-            lineBox.setResponder(text -> contentController.setDialogueLineText(lineIndex, text));
-            panel.add(lineBox, y);
-            dialogueLineBoxes.add(lineBox);
-            y += 22;
-
-            int delaySeconds = line.delayTicks() / 20;
-            panel.add(new AdminFieldLabel(0, y, width, Component.translatable("foolsadmin.admin.inspector.line_delay", delaySeconds)), y);
-            y += 14;
-            int buttonHalf = (width - 4) / 2;
-            panel.add(new AdminActionButton(0, y, buttonHalf, 20, Component.translatable("foolsadmin.admin.inspector.delay_minus"), false, false, () -> {
-                DialogueLine current = contentController.dialogueDraft().lines().get(lineIndex);
-                contentController.setDialogueLineDelay(lineIndex, current.delayTicks() - 20);
-                refreshAdminUi();
-            }), 0, y);
-            panel.add(new AdminActionButton(0, y, buttonHalf, 20, Component.translatable("foolsadmin.admin.inspector.delay_plus"), false, false, () -> {
-                DialogueLine current = contentController.dialogueDraft().lines().get(lineIndex);
-                contentController.setDialogueLineDelay(lineIndex, current.delayTicks() + 20);
-                refreshAdminUi();
-            }), buttonHalf + 4, y);
-            y += 24;
-
-            panel.add(new AdminActionButton(0, y, width, 20, Component.translatable("foolsadmin.admin.inspector.remove_line"), false, false, () -> {
-                contentController.removeDialogueLine(lineIndex);
-                refreshAdminUi();
-            }), y);
-            y += 26;
-        }
-
-        panel.add(new AdminActionButton(0, y, width, 20, Component.translatable("foolsadmin.admin.inspector.add_line"), false, false, () -> {
-            contentController.addDialogueLine();
-            refreshAdminUi();
-        }), y);
-        y += 28;
-
-        panel.add(new AdminFieldLabel(0, y, width, Component.translatable("foolsadmin.admin.inspector.assign_npcs")), y);
-        y += 14;
-        if (contentController.npcs().isEmpty()) {
-            panel.add(new AdminFieldLabel(0, y, width, Component.translatable("foolsadmin.admin.inspector.assign_npcs_empty")), y);
-            y += 18;
-        } else {
-            for (NpcDefinition npc : contentController.npcs()) {
-                Checkbox assignmentCheckbox = Checkbox.builder(Component.literal(npc.displayName()), font)
-                        .pos(0, y)
-                        .selected(contentController.isNpcAssignedToDialogueDraft(npc.id()))
-                        .onValueChange((box, selected) -> contentController.setDialogueNpcAssignment(npc.id(), selected))
-                        .build();
-                panel.add(assignmentCheckbox, y);
-                y += 20;
+        switch (draft.objectiveType()) {
+            case TALK_TO_NPC, ITEM_TO_NPC -> {
+                String npcName = draft.targetNpcId() == null
+                        ? "-"
+                        : contentController.npcs().stream()
+                        .filter(npc -> npc.id().equals(draft.targetNpcId()))
+                        .map(NpcDefinition::displayName)
+                        .findFirst()
+                        .orElse(draft.targetNpcId());
+                panel.add(new AdminActionButton(0, y, width, 20, Component.translatable("foolsadmin.admin.inspector.quest_target_npc", npcName), false, false, contentController::cycleQuestTargetNpc), y);
+                y += 26;
+            }
+            case KILL_BOSS -> {
+                String bossName = draft.targetBossId() == null
+                        ? "-"
+                        : contentController.bosses().stream()
+                        .filter(boss -> boss.id().equals(draft.targetBossId()))
+                        .map(BossDefinition::displayName)
+                        .findFirst()
+                        .orElse(draft.targetBossId());
+                panel.add(new AdminActionButton(0, y, width, 20, Component.translatable("foolsadmin.admin.inspector.quest_target_boss", bossName), false, false, contentController::cycleQuestTargetBoss), y);
+                y += 26;
+            }
+            case CLEAR_DUNGEON -> {
+                panel.add(new AdminFieldLabel(0, y, width, Component.translatable("foolsadmin.admin.inspector.quest_dungeon_disabled")), y);
+                y += 18;
             }
         }
-        y += 8;
 
-        panel.add(new AdminActionButton(0, y, width, 20, Component.translatable("foolsadmin.admin.inspector.save_dialogue"), false, false, this::saveDialogueDraft), y);
+        if (draft.objectiveType() == QuestObjectiveType.ITEM_TO_NPC) {
+            panel.add(new AdminFieldLabel(0, y, width, Component.translatable("foolsadmin.admin.inspector.quest_required_item")), y);
+            y += 14;
+            requiredItemBox = new EditBox(font, 0, y, width, 18, Component.empty());
+            requiredItemBox.setMaxLength(128);
+            requiredItemBox.setValue(contentController.requiredItemInput() != null ? contentController.requiredItemInput() : "");
+            requiredItemBox.setResponder(contentController::setRequiredItemInput);
+            panel.add(requiredItemBox, y);
+            y += 24;
+            panel.add(new AdminActionButton(0, y, (width - 4) / 2, 20, Component.literal("-"), false, false, () -> {
+                contentController.setRequiredItemCount(draft.requiredCount() - 1);
+                refreshAdminUi();
+            }), 0, y);
+            panel.add(new AdminActionButton(0, y, (width - 4) / 2, 20, Component.literal("+"), false, false, () -> {
+                contentController.setRequiredItemCount(draft.requiredCount() + 1);
+                refreshAdminUi();
+            }), (width - 4) / 2 + 4, y);
+            y += 24;
+            panel.add(new AdminFieldLabel(0, y, width, Component.translatable("foolsadmin.admin.inspector.quest_required_count", draft.requiredCount())), y);
+            y += 18;
+        }
+
+        if (!draft.prerequisiteIds().isEmpty()) {
+            panel.add(new AdminFieldLabel(0, y, width, Component.translatable("foolsadmin.admin.inspector.quest_prerequisites")), y);
+            y += 14;
+            for (String prerequisiteId : draft.prerequisiteIds()) {
+                String label = contentController.quests().stream()
+                        .filter(quest -> quest.id().equals(prerequisiteId))
+                        .map(QuestPoint::name)
+                        .findFirst()
+                        .orElse(prerequisiteId);
+                final String removeId = prerequisiteId;
+                panel.add(new AdminActionButton(0, y, width, 20, Component.literal("x " + label), false, false, () -> {
+                    contentController.removePrerequisite(removeId);
+                    refreshAdminUi();
+                }), y);
+                y += 22;
+            }
+        }
+
+        panel.add(new AdminFieldLabel(0, y, width, Component.translatable("foolsadmin.admin.inspector.dialogue_script")), y);
+        y += 14;
+        panel.add(new AdminFieldLabel(0, y, width, Component.translatable("foolsadmin.admin.inspector.dialogue_script_hint")), y);
+        y += 14;
+        questScriptBox = MultiLineEditBox.builder()
+                .setPlaceholder(Component.translatable("foolsadmin.admin.inspector.dialogue_script_hint"))
+                .build(font, width, 120, Component.empty());
+        questScriptBox.setValue(draft.dialogueScript());
+        questScriptBox.setValueListener(contentController::setQuestDialogueScript);
+        panel.add(questScriptBox, y);
+        y += 126;
+
+        panel.add(new AdminActionButton(0, y, width, 20, Component.translatable("foolsadmin.admin.inspector.save_quest"), false, false, this::saveQuestDraft), y);
         y += 26;
-        panel.add(new AdminActionButton(0, y, width, 20, Component.translatable("foolsadmin.admin.inspector.delete"), true, false, contentController::deleteSelectedDialogue), y);
+        panel.add(new AdminActionButton(0, y, width, 20, Component.translatable("foolsadmin.admin.inspector.delete"), true, false, contentController::deleteSelectedQuest), y);
         return y + 26;
     }
 
@@ -591,14 +838,17 @@ public class AdminScreen extends Screen {
         contentController.saveNpcDraft();
     }
 
-    private void saveDialogueDraft() {
+    private void saveQuestDraft() {
         if (nameBox != null) {
-            contentController.setDialogueName(nameBox.getValue());
+            contentController.setQuestName(nameBox.getValue());
         }
-        for (int index = 0; index < dialogueLineBoxes.size(); index++) {
-            contentController.setDialogueLineText(index, dialogueLineBoxes.get(index).getValue());
+        if (questScriptBox != null) {
+            contentController.setQuestDialogueScript(questScriptBox.getValue());
         }
-        contentController.saveDialogueDraft();
+        if (requiredItemBox != null) {
+            contentController.setRequiredItemInput(requiredItemBox.getValue());
+        }
+        contentController.saveQuestDraft();
     }
 
     private boolean syncInspectorInputs(boolean boss) {
@@ -610,13 +860,7 @@ public class AdminScreen extends Screen {
     @Override
     public boolean mouseClicked(MouseButtonEvent event, boolean doubleClick) {
         if (inspectorPanel != null) {
-            Optional<GuiEventListener> child = inspectorPanel.getChildAt(event.x(), event.y());
-            if (child.isPresent()) {
-                setFocused(child.get());
-                if (child.get().mouseClicked(event, doubleClick)) {
-                    return true;
-                }
-            } else if (inspectorPanel.isMouseOver(event.x(), event.y()) && inspectorPanel.mouseClicked(event, doubleClick)) {
+            if (inspectorPanel.isMouseOver(event.x(), event.y()) && inspectorPanel.mouseClicked(event, doubleClick)) {
                 return true;
             }
         }
@@ -625,6 +869,9 @@ public class AdminScreen extends Screen {
 
     @Override
     public boolean mouseReleased(MouseButtonEvent event) {
+        if (questGraphWidget != null && questGraphWidget.mouseReleased(event)) {
+            return true;
+        }
         if (mapWidget != null && mapWidget.mouseReleased(event)) {
             return true;
         }
@@ -636,6 +883,9 @@ public class AdminScreen extends Screen {
 
     @Override
     public boolean mouseDragged(MouseButtonEvent event, double dragX, double dragY) {
+        if (questGraphWidget != null && questGraphWidget.mouseDragged(event, dragX, dragY)) {
+            return true;
+        }
         if (mapWidget != null && mapWidget.mouseDragged(event, dragX, dragY)) {
             return true;
         }
@@ -674,6 +924,12 @@ public class AdminScreen extends Screen {
     public boolean mouseScrolled(double mouseX, double mouseY, double scrollX, double scrollY) {
         if (inspectorPanel != null && inspectorPanel.mouseScrolled(mouseX, mouseY, scrollX, scrollY)) {
             inspectorScroll = inspectorPanel.scroll();
+            return true;
+        }
+        if (questGraphWidget != null && questGraphWidget.mouseScrolled(mouseX, mouseY, scrollX, scrollY)) {
+            return true;
+        }
+        if (mapWidget != null && mapWidget.mouseScrolled(mouseX, mouseY, scrollX, scrollY)) {
             return true;
         }
         return super.mouseScrolled(mouseX, mouseY, scrollX, scrollY);
@@ -738,6 +994,24 @@ public class AdminScreen extends Screen {
 
         graphics.text(font, getTitle(), AdminUiTheme.PANEL_PADDING, 10, AdminUiTheme.TEXT, false);
 
+        if (contentController.activeTab() == AdminTab.QUESTS) {
+            graphics.fill(
+                    layout.campaignX() - AdminUiTheme.PANEL_PADDING,
+                    layout.mapY() - AdminUiTheme.PANEL_PADDING,
+                    layout.campaignX() + layout.campaignWidth() + AdminUiTheme.PANEL_PADDING,
+                    layout.contentBottom(),
+                    AdminUiTheme.FRAME_LIGHT
+            );
+            graphics.fill(
+                    layout.campaignX() - AdminUiTheme.PANEL_PADDING,
+                    layout.mapY() - AdminUiTheme.PANEL_PADDING,
+                    layout.campaignX() + layout.campaignWidth() + AdminUiTheme.PANEL_PADDING,
+                    layout.mapY() + 14,
+                    AdminUiTheme.HEADER
+            );
+            graphics.text(font, Component.literal("Campaigns"), layout.campaignX(), layout.mapY() - 4, AdminUiTheme.ACCENT, false);
+        }
+
         int navY = AdminUiTheme.HEADER_HEIGHT + 112;
         for (String key : new String[]{
                 "foolsadmin.admin.nav.protection",
@@ -753,6 +1027,20 @@ public class AdminScreen extends Screen {
                     Component.translatable("foolsadmin.admin.inspector.map_hint"),
                     AdminUiTheme.PANEL_PADDING,
                     navY + 8,
+                    AdminUiTheme.TEXT_MUTED,
+                    false
+            );
+        } else if (contentController.activeTab() == AdminTab.QUESTS) {
+            String hintKey = switch (contentController.activeQuestTool()) {
+                case ADD -> "foolsadmin.admin.quest.hint.add";
+                case PAN -> "foolsadmin.admin.quest.hint.pan";
+                case LINK -> "foolsadmin.admin.quest.hint.link";
+            };
+            graphics.text(
+                    font,
+                    Component.translatable(hintKey),
+                    layout.mapX(),
+                    layout.contentBottom() - AdminUiTheme.STATUS_HEIGHT - 46,
                     AdminUiTheme.TEXT_MUTED,
                     false
             );
@@ -781,7 +1069,9 @@ public class AdminScreen extends Screen {
         int y = height - AdminUiTheme.STATUS_HEIGHT + 7;
         int x = AdminUiTheme.NAV_WIDTH + AdminUiTheme.PANEL_PADDING;
 
-        int zoomPercent = (int) Math.round(100.0D / viewState.blocksPerPixel());
+        int zoomPercent = contentController.activeTab() == AdminTab.QUESTS
+                ? (int) Math.round(100.0D / questViewState.scale())
+                : (int) Math.round(100.0D / viewState.blocksPerPixel());
         Component zoomText = Component.translatable("foolsadmin.admin.status.zoom", zoomPercent);
         int zoomWidth = font.width(zoomText);
         int zoomX = width - zoomWidth - AdminUiTheme.PANEL_PADDING;

@@ -9,7 +9,6 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class AdminContentCodecTest {
@@ -32,7 +31,7 @@ class AdminContentCodecTest {
     }
 
     @Test
-    void npcRoundTripIncludesMovementAndDialogueFields() {
+    void npcRoundTripIncludesMovementFields() {
         NpcDefinition original = new NpcDefinition(
                 "npc-1",
                 "Guide",
@@ -43,7 +42,6 @@ class AdminContentCodecTest {
                 List.of(new Waypoint(20, 70, -4, 40)),
                 false,
                 true,
-                "dialogue-1",
                 null,
                 3
         );
@@ -52,7 +50,7 @@ class AdminContentCodecTest {
     }
 
     @Test
-    void npcDefaultsMissingStationaryAndDialogue() {
+    void npcDefaultsMissingStationary() {
         var json = JsonOps.INSTANCE.createMap(Map.of(
                 JsonOps.INSTANCE.createString("id"), JsonOps.INSTANCE.createString("npc-1"),
                 JsonOps.INSTANCE.createString("display_name"), JsonOps.INSTANCE.createString("Guide"),
@@ -65,22 +63,55 @@ class AdminContentCodecTest {
         ));
         NpcDefinition npc = NpcDefinition.CODEC.parse(JsonOps.INSTANCE, json).getOrThrow();
         assertFalse(npc.stationary());
-        assertNull(npc.dialogueId());
         assertTrue(npc.repeatPath());
     }
 
     @Test
-    void dialogueDefinitionRoundTrip() {
-        DialogueDefinition original = new DialogueDefinition(
-                "dialogue-1",
-                "Welcome",
-                List.of(
-                        new DialogueLine("Hello.", 0),
-                        new DialogueLine("Goodbye.", 60)
-                ),
+    void questPointRoundTrip() {
+        QuestPoint original = new QuestPoint(
+                "quest-1",
+                "Talk to Guide",
+                120.0F,
+                80.0F,
+                QuestObjectiveType.TALK_TO_NPC,
+                "npc-1",
+                null,
+                null,
+                1,
+                List.of(),
+                """
+                --> Hello.
+                <-- [Continue]
+                """,
                 2
         );
-        DialogueDefinition decoded = roundTrip(DialogueDefinition.CODEC, original);
+        QuestPoint decoded = roundTrip(QuestPoint.CODEC, original);
+        assertEquals(original, decoded);
+    }
+
+    @Test
+    void campaignRoundTripIncludesUnlockRequirements() {
+        Campaign original = new Campaign(
+                "chapter-two",
+                "Chapter Two",
+                List.of(),
+                List.of("tutorial"),
+                List.of("tutorial/welcome"),
+                3
+        );
+        assertEquals(original, roundTrip(Campaign.CODEC, original));
+    }
+
+    @Test
+    void dialogueScriptRoundTrip() {
+        DialogueScript original = new DialogueScript(
+                "n0",
+                List.of(
+                        new DialogueNode("n0", DialogueSpeaker.NPC, "Hello.", 0, "n1", List.of()),
+                        new DialogueNode("n1", DialogueSpeaker.PLAYER, "", 0, null, List.of(new DialogueChoice("Yes", null)))
+                )
+        );
+        DialogueScript decoded = roundTrip(DialogueScript.CODEC, original);
         assertEquals(original, decoded);
     }
 

@@ -122,9 +122,16 @@ public class AdminInspectorScrollPanel extends AbstractWidget {
         for (int index = entries.size() - 1; index >= 0; index--) {
             AbstractWidget widget = entries.get(index).widget;
             if (isChildVisible(widget) && widget.mouseClicked(event, doubleClick)) {
+                if (focusedWidget != null && focusedWidget != widget) {
+                    focusedWidget.setFocused(false);
+                }
                 focusedWidget = widget;
+                focusedWidget.setFocused(true);
                 return true;
             }
+        }
+        if (focusedWidget != null) {
+            focusedWidget.setFocused(false);
         }
         focusedWidget = null;
         return true;
@@ -165,30 +172,16 @@ public class AdminInspectorScrollPanel extends AbstractWidget {
 
     public boolean charTyped(CharacterEvent event) {
         layoutChildren();
-        if (focusedWidget != null && isChildVisible(focusedWidget) && focusedWidget.charTyped(event)) {
-            return true;
-        }
-        for (int index = entries.size() - 1; index >= 0; index--) {
-            AbstractWidget widget = entries.get(index).widget;
-            if (widget.charTyped(event)) {
-                focusedWidget = widget;
-                return true;
-            }
+        if (focusedWidget != null && isChildVisible(focusedWidget)) {
+            return focusedWidget.charTyped(event);
         }
         return false;
     }
 
     public boolean keyPressed(KeyEvent event) {
         layoutChildren();
-        if (focusedWidget != null && isChildVisible(focusedWidget) && focusedWidget.keyPressed(event)) {
-            return true;
-        }
-        for (int index = entries.size() - 1; index >= 0; index--) {
-            AbstractWidget widget = entries.get(index).widget;
-            if (widget.keyPressed(event)) {
-                focusedWidget = widget;
-                return true;
-            }
+        if (focusedWidget != null && isChildVisible(focusedWidget)) {
+            return focusedWidget.keyPressed(event);
         }
         return false;
     }

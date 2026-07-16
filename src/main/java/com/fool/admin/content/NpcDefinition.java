@@ -21,7 +21,6 @@ public record NpcDefinition(
         List<Waypoint> waypoints,
         boolean repeatPath,
         boolean stationary,
-        @Nullable String dialogueId,
         @Nullable UUID boundEntityUuid,
         int revision
 ) {
@@ -35,10 +34,9 @@ public record NpcDefinition(
             Waypoint.CODEC.listOf().fieldOf("waypoints").forGetter(NpcDefinition::waypoints),
             Codec.BOOL.optionalFieldOf("repeat_path", true).forGetter(NpcDefinition::repeatPath),
             Codec.BOOL.optionalFieldOf("stationary", false).forGetter(NpcDefinition::stationary),
-            Codec.STRING.lenientOptionalFieldOf("dialogue_id").forGetter(definition -> Optional.ofNullable(definition.dialogueId())),
             Codec.STRING.lenientOptionalFieldOf("bound_entity_uuid").forGetter(definition -> Optional.ofNullable(definition.boundEntityUuid()).map(UUID::toString)),
             Codec.INT.fieldOf("revision").forGetter(NpcDefinition::revision)
-    ).apply(instance, (id, displayName, entityTypeId, spawnX, spawnY, spawnZ, waypoints, repeatPath, stationary, dialogueId, boundUuid, revision) -> new NpcDefinition(
+    ).apply(instance, (id, displayName, entityTypeId, spawnX, spawnY, spawnZ, waypoints, repeatPath, stationary, boundUuid, revision) -> new NpcDefinition(
             id,
             displayName,
             entityTypeId,
@@ -48,7 +46,6 @@ public record NpcDefinition(
             List.copyOf(waypoints),
             repeatPath,
             stationary,
-            dialogueId.filter(value -> !value.isBlank()).orElse(null),
             boundUuid.filter(value -> !value.isBlank()).map(UUID::fromString).orElse(null),
             revision
     )));
@@ -58,23 +55,19 @@ public record NpcDefinition(
     }
 
     public NpcDefinition withBoundEntity(@Nullable UUID entityUuid) {
-        return new NpcDefinition(id, displayName, entityTypeId, spawnX, spawnY, spawnZ, waypoints, repeatPath, stationary, dialogueId, entityUuid, revision);
+        return new NpcDefinition(id, displayName, entityTypeId, spawnX, spawnY, spawnZ, waypoints, repeatPath, stationary, entityUuid, revision);
     }
 
     public NpcDefinition withRevision(int newRevision) {
-        return new NpcDefinition(id, displayName, entityTypeId, spawnX, spawnY, spawnZ, waypoints, repeatPath, stationary, dialogueId, boundEntityUuid, newRevision);
+        return new NpcDefinition(id, displayName, entityTypeId, spawnX, spawnY, spawnZ, waypoints, repeatPath, stationary, boundEntityUuid, newRevision);
     }
 
     public NpcDefinition withStationary(boolean stationary) {
-        return new NpcDefinition(id, displayName, entityTypeId, spawnX, spawnY, spawnZ, waypoints, repeatPath, stationary, dialogueId, boundEntityUuid, revision);
-    }
-
-    public NpcDefinition withDialogueId(@Nullable String dialogueId) {
-        return new NpcDefinition(id, displayName, entityTypeId, spawnX, spawnY, spawnZ, waypoints, repeatPath, stationary, dialogueId, boundEntityUuid, revision);
+        return new NpcDefinition(id, displayName, entityTypeId, spawnX, spawnY, spawnZ, waypoints, repeatPath, stationary, boundEntityUuid, revision);
     }
 
     public NpcDefinition withWaypoints(List<Waypoint> waypoints) {
-        return new NpcDefinition(id, displayName, entityTypeId, spawnX, spawnY, spawnZ, waypoints, repeatPath, stationary, dialogueId, boundEntityUuid, revision);
+        return new NpcDefinition(id, displayName, entityTypeId, spawnX, spawnY, spawnZ, waypoints, repeatPath, stationary, boundEntityUuid, revision);
     }
 
     public NpcDefinition copyForEdit() {
@@ -88,7 +81,6 @@ public record NpcDefinition(
                 new ArrayList<>(waypoints),
                 repeatPath,
                 stationary,
-                dialogueId,
                 boundEntityUuid,
                 revision
         );

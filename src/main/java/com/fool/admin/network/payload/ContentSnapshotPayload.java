@@ -2,7 +2,7 @@ package com.fool.admin.network.payload;
 
 import com.fool.admin.FoolsAdmin;
 import com.fool.admin.content.BossDefinition;
-import com.fool.admin.content.DialogueDefinition;
+import com.fool.admin.content.Campaign;
 import com.fool.admin.content.NpcDefinition;
 import io.netty.buffer.ByteBuf;
 import net.minecraft.network.codec.ByteBufCodecs;
@@ -18,7 +18,7 @@ public record ContentSnapshotPayload(
         ResourceKey<Level> dimension,
         List<BossDefinition> bosses,
         List<NpcDefinition> npcs,
-        List<DialogueDefinition> dialogues
+        List<Campaign> campaigns
 ) implements CustomPacketPayload {
     public static final Type<ContentSnapshotPayload> TYPE =
             new Type<>(Identifier.fromNamespaceAndPath(FoolsAdmin.MODID, "content_snapshot"));
@@ -27,14 +27,14 @@ public record ContentSnapshotPayload(
             OpenAdminScreenPayload.DIMENSION_CODEC, ContentSnapshotPayload::dimension,
             ContentPayloadCodecs.BOSS_CODEC.apply(ByteBufCodecs.list(256)), ContentSnapshotPayload::bosses,
             ContentPayloadCodecs.NPC_CODEC.apply(ByteBufCodecs.list(256)), ContentSnapshotPayload::npcs,
-            ContentPayloadCodecs.DIALOGUE_CODEC.apply(ByteBufCodecs.list(256)), ContentSnapshotPayload::dialogues,
+            ContentPayloadCodecs.CAMPAIGN_CODEC.apply(ByteBufCodecs.list(64)), ContentSnapshotPayload::campaigns,
             ContentSnapshotPayload::new
     );
 
     public ContentSnapshotPayload {
         bosses = List.copyOf(bosses);
         npcs = List.copyOf(npcs);
-        dialogues = List.copyOf(dialogues);
+        campaigns = List.copyOf(campaigns);
     }
 
     @Override

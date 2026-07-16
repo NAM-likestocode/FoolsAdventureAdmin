@@ -1,7 +1,6 @@
 package com.fool.admin;
 
 import com.fool.admin.content.AdminEntityService;
-import com.fool.admin.content.DialogueService;
 import com.fool.admin.map.AdminMapService;
 import com.fool.admin.network.payload.MapTilesResponsePayload;
 import com.fool.admin.network.payload.OpenAdminScreenPayload;
@@ -60,7 +59,6 @@ public final class AdminServerHandlers {
         for (ServerLevel level : event.getServer().getAllLevels()) {
             AdminMapService.get(level).processSamplingBudget();
             AdminEntityService.tick(level);
-            DialogueService.tick(level);
         }
     }
 

@@ -11,7 +11,8 @@ public record DeleteContentPayload(ContentKind contentKind, String id) implement
     public enum ContentKind {
         BOSS,
         NPC,
-        DIALOGUE
+        QUEST,
+        CAMPAIGN
     }
 
     public static final Type<DeleteContentPayload> TYPE =

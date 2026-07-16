@@ -76,5 +76,36 @@
   "foolsadmin.admin.error.invalid_coordinates": "Invalid coordinates.",
   "foolsadmin.admin.error.empty_zone": "Paint a boss zone before saving.",
   "foolsadmin.admin.error.invalid_dialogue": "Invalid dialogue.",
-  "foolsadmin.admin.error.no_npcs_assigned": "Check at least one NPC under Assign NPCs."
+  "foolsadmin.admin.error.no_npcs_assigned": "Check at least one NPC under Assign NPCs.",
+  "foolsadmin.admin.error.invalid_quest": "Invalid quest point.",
+  "foolsadmin.admin.error.invalid_dialogue_script": "Invalid dialogue script.",
+  "foolsadmin.admin.error.invalid_objective_target": "Choose a valid objective target.",
+  "foolsadmin.admin.error.too_many_quests": "Too many quest points.",
+  "foolsadmin.admin.error.invalid_prerequisite": "Invalid prerequisite quest.",
+  "foolsadmin.admin.error.empty_dialogue_script": "Dialogue script cannot be empty.",
+
+  "foolsadmin.admin.quest_graph.narration": "Quest graph",
+  "foolsadmin.admin.quest.tool.add": "Add",
+  "foolsadmin.admin.quest.tool.pan": "Pan",
+  "foolsadmin.admin.quest.tool.link": "Link",
+  "foolsadmin.admin.quest.hint.add": "Add: click empty canvas to place a quest.",
+  "foolsadmin.admin.quest.hint.pan": "Pan: drag the canvas. Drag a quest to move it.",
+  "foolsadmin.admin.quest.hint.link": "Link: click the quest that requires a prerequisite, then click its prerequisite.",
+
+  "foolsadmin.admin.inspector.quest_objective": "Objective",
+  "foolsadmin.admin.inspector.quest_objective_value": "Objective: %s",
+  "foolsadmin.admin.inspector.quest_target_npc": "Target NPC: %s",
+  "foolsadmin.admin.inspector.quest_target_boss": "Target Boss: %s",
+  "foolsadmin.admin.inspector.quest_dungeon_disabled": "Dungeon objectives are not available yet.",
+  "foolsadmin.admin.inspector.quest_required_item": "Required Item",
+  "foolsadmin.admin.inspector.quest_required_count": "Required count: %s",
+  "foolsadmin.admin.inspector.quest_prerequisites": "Prerequisites",
+  "foolsadmin.admin.inspector.dialogue_script": "Dialogue Script",
+  "foolsadmin.admin.inspector.dialogue_script_hint": "Use --> NPC line +2 and <-- [choice] -> label",
+  "foolsadmin.admin.inspector.save_quest": "Save Quest",
+
+  "foolsadmin.admin.objective.talk_to_npc": "Talk to NPC",
+  "foolsadmin.admin.objective.item_to_npc": "Bring Item to NPC",
+  "foolsadmin.admin.objective.kill_boss": "Kill Boss",
+  "foolsadmin.admin.objective.clear_dungeon": "Clear Dungeon (disabled)"
 }

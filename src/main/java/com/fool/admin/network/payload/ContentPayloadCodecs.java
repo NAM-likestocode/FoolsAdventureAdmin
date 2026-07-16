@@ -2,9 +2,14 @@ package com.fool.admin.network.payload;
 
 import com.fool.admin.content.AdminContentConstants;
 import com.fool.admin.content.BossDefinition;
-import com.fool.admin.content.DialogueDefinition;
-import com.fool.admin.content.DialogueLine;
+import com.fool.admin.content.Campaign;
+import com.fool.admin.content.DialogueChoice;
+import com.fool.admin.content.DialogueNode;
+import com.fool.admin.content.DialogueScript;
+import com.fool.admin.content.DialogueSpeaker;
 import com.fool.admin.content.NpcDefinition;
+import com.fool.admin.content.QuestObjectiveType;
+import com.fool.admin.content.QuestPoint;
 import com.fool.admin.content.Waypoint;
 import com.fool.admin.content.ZoneMask;
 import io.netty.buffer.ByteBuf;
@@ -38,25 +43,40 @@ public final class ContentPayloadCodecs {
             Waypoint::new
     );
 
-    public static final StreamCodec<ByteBuf, DialogueLine> DIALOGUE_LINE_CODEC = StreamCodec.composite(
-            ByteBufCodecs.STRING_UTF8, DialogueLine::text,
-            ByteBufCodecs.VAR_INT, DialogueLine::delayTicks,
-            DialogueLine::new
-    );
-
-    public static final StreamCodec<ByteBuf, DialogueDefinition> DIALOGUE_CODEC = StreamCodec.composite(
-            ByteBufCodecs.STRING_UTF8, DialogueDefinition::id,
-            ByteBufCodecs.STRING_UTF8, DialogueDefinition::name,
-            DIALOGUE_LINE_CODEC.apply(ByteBufCodecs.list(AdminContentConstants.MAX_DIALOGUE_LINES)), DialogueDefinition::lines,
-            ByteBufCodecs.VAR_INT, DialogueDefinition::revision,
-            DialogueDefinition::new
-    );
-
     public static final StreamCodec<ByteBuf, UUID> OPTIONAL_UUID_CODEC = ByteBufCodecs.optional(UUIDUtil.STREAM_CODEC)
             .map(optional -> optional.orElse(null), uuid -> Optional.ofNullable(uuid));
 
     public static final StreamCodec<ByteBuf, String> OPTIONAL_STRING_CODEC = ByteBufCodecs.optional(ByteBufCodecs.STRING_UTF8)
             .map(optional -> optional.orElse(null), value -> Optional.ofNullable(value));
+
+    public static final StreamCodec<ByteBuf, DialogueChoice> DIALOGUE_CHOICE_CODEC = StreamCodec.composite(
+            ByteBufCodecs.STRING_UTF8, DialogueChoice::label,
+            OPTIONAL_STRING_CODEC, DialogueChoice::targetNodeId,
+            DialogueChoice::new
+    );
+
+    public static final StreamCodec<ByteBuf, DialogueNode> DIALOGUE_NODE_CODEC = StreamCodec.composite(
+            ByteBufCodecs.STRING_UTF8, DialogueNode::id,
+            ByteBufCodecs.STRING_UTF8, node -> node.speaker().name(),
+            ByteBufCodecs.STRING_UTF8, DialogueNode::text,
+            ByteBufCodecs.VAR_INT, DialogueNode::delayTicks,
+            OPTIONAL_STRING_CODEC, DialogueNode::nextNodeId,
+            DIALOGUE_CHOICE_CODEC.apply(ByteBufCodecs.list(AdminContentConstants.MAX_DIALOGUE_CHOICES)), DialogueNode::choices,
+            (id, speakerName, text, delayTicks, nextNodeId, choices) -> new DialogueNode(
+                    id,
+                    DialogueSpeaker.valueOf(speakerName),
+                    text,
+                    delayTicks,
+                    nextNodeId,
+                    choices
+            )
+    );
+
+    public static final StreamCodec<ByteBuf, DialogueScript> DIALOGUE_SCRIPT_CODEC = StreamCodec.composite(
+            ByteBufCodecs.STRING_UTF8, DialogueScript::entryNodeId,
+            DIALOGUE_NODE_CODEC.apply(ByteBufCodecs.list(AdminContentConstants.MAX_DIALOGUE_NODES)), DialogueScript::nodes,
+            DialogueScript::new
+    );
 
     public static final StreamCodec<ByteBuf, BossDefinition> BOSS_CODEC = StreamCodec.of(
             ContentPayloadCodecs::encodeBoss,
@@ -107,10 +127,50 @@ public final class ContentPayloadCodecs {
             WAYPOINT_CODEC.apply(ByteBufCodecs.list(AdminContentConstants.MAX_WAYPOINTS)), NpcDefinition::waypoints,
             ByteBufCodecs.BOOL, NpcDefinition::repeatPath,
             ByteBufCodecs.BOOL, NpcDefinition::stationary,
-            OPTIONAL_STRING_CODEC, NpcDefinition::dialogueId,
             OPTIONAL_UUID_CODEC, NpcDefinition::boundEntityUuid,
             ByteBufCodecs.VAR_INT, NpcDefinition::revision,
             NpcDefinition::new
+    );
+
+    public static final StreamCodec<ByteBuf, QuestPoint> QUEST_CODEC = StreamCodec.composite(
+            ByteBufCodecs.STRING_UTF8, QuestPoint::id,
+            ByteBufCodecs.STRING_UTF8, QuestPoint::name,
+            ByteBufCodecs.FLOAT, QuestPoint::canvasX,
+            ByteBufCodecs.FLOAT, QuestPoint::canvasY,
+            ByteBufCodecs.STRING_UTF8, quest -> quest.objectiveType().name(),
+            OPTIONAL_STRING_CODEC, QuestPoint::targetNpcId,
+            OPTIONAL_STRING_CODEC, QuestPoint::targetBossId,
+            ByteBufCodecs.optional(PayloadCodecs.IDENTIFIER).map(optional -> optional.orElse(null), value -> Optional.ofNullable(value)),
+            QuestPoint::requiredItem,
+            ByteBufCodecs.VAR_INT, QuestPoint::requiredCount,
+            ByteBufCodecs.STRING_UTF8.apply(ByteBufCodecs.list(AdminContentConstants.MAX_QUEST_PREREQUISITES)),
+            QuestPoint::prerequisiteIds,
+            ByteBufCodecs.STRING_UTF8, QuestPoint::dialogueScript,
+            ByteBufCodecs.VAR_INT, QuestPoint::revision,
+            (id, name, canvasX, canvasY, objectiveTypeName, targetNpcId, targetBossId, requiredItem, requiredCount, prerequisiteIds, dialogueScript, revision) -> new QuestPoint(
+                    id,
+                    name,
+                    canvasX,
+                    canvasY,
+                    QuestObjectiveType.valueOf(objectiveTypeName),
+                    targetNpcId,
+                    targetBossId,
+                    requiredItem,
+                    requiredCount,
+                    prerequisiteIds,
+                    dialogueScript,
+                    revision
+            )
+    );
+
+    public static final StreamCodec<ByteBuf, Campaign> CAMPAIGN_CODEC = StreamCodec.composite(
+            ByteBufCodecs.STRING_UTF8, Campaign::id,
+            ByteBufCodecs.STRING_UTF8, Campaign::name,
+            QUEST_CODEC.apply(ByteBufCodecs.list(AdminContentConstants.MAX_QUEST_POINTS)), Campaign::questPoints,
+            ByteBufCodecs.STRING_UTF8.apply(ByteBufCodecs.list(64)), Campaign::prerequisiteCampaignIds,
+            ByteBufCodecs.STRING_UTF8.apply(ByteBufCodecs.list(256)), Campaign::unlockAfterQuestKeys,
+            ByteBufCodecs.VAR_INT, Campaign::revision,
+            Campaign::new
     );
 
     private ContentPayloadCodecs() {

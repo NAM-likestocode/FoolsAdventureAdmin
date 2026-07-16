@@ -2,21 +2,28 @@ package com.fool.admin.network;
 
 import com.fool.admin.AdminContentHandlers;
 import com.fool.admin.AdminServerHandlers;
+import com.fool.admin.network.payload.CloseDialoguePayload;
 import com.fool.admin.network.payload.DeleteContentPayload;
 import com.fool.admin.network.payload.MapTilesResponsePayload;
 import com.fool.admin.network.payload.OpenAdminScreenPayload;
+import com.fool.admin.network.payload.OpenDialoguePayload;
+import com.fool.admin.network.payload.OpenPlayerQuestsPayload;
+import com.fool.admin.network.payload.OpenNpcQuestCampaignsPayload;
+import com.fool.admin.network.payload.SetCampaignActivePayload;
+import com.fool.admin.network.payload.StartNpcQuestPayload;
 import com.fool.admin.network.payload.RequestContentSnapshotPayload;
 import com.fool.admin.network.payload.RequestMapTilesPayload;
 import com.fool.admin.network.payload.UpsertBossPayload;
-import com.fool.admin.network.payload.UpsertDialoguePayload;
 import com.fool.admin.network.payload.UpsertNpcPayload;
+import com.fool.admin.network.payload.UpsertQuestPayload;
+import com.fool.admin.network.payload.UpsertCampaignPayload;
 import com.fool.admin.network.payload.ContentMutationResultPayload;
 import com.fool.admin.network.payload.ContentSnapshotPayload;
 import net.neoforged.neoforge.network.event.RegisterPayloadHandlersEvent;
 import net.neoforged.neoforge.network.registration.PayloadRegistrar;
 
 public final class AdminNetwork {
-    public static final String PROTOCOL_VERSION = "1";
+    public static final String PROTOCOL_VERSION = "4";
 
     private AdminNetwork() {
     }
@@ -27,6 +34,19 @@ public final class AdminNetwork {
         registrar.playToClient(
                 OpenAdminScreenPayload.TYPE,
                 OpenAdminScreenPayload.STREAM_CODEC
+        );
+
+        registrar.playToClient(
+                OpenDialoguePayload.TYPE,
+                OpenDialoguePayload.STREAM_CODEC
+        );
+        registrar.playToClient(
+                OpenPlayerQuestsPayload.TYPE,
+                OpenPlayerQuestsPayload.STREAM_CODEC
+        );
+        registrar.playToClient(
+                OpenNpcQuestCampaignsPayload.TYPE,
+                OpenNpcQuestCampaignsPayload.STREAM_CODEC
         );
 
         registrar.playToServer(
@@ -69,9 +89,31 @@ public final class AdminNetwork {
         );
 
         registrar.playToServer(
-                UpsertDialoguePayload.TYPE,
-                UpsertDialoguePayload.STREAM_CODEC,
-                AdminContentHandlers::handleUpsertDialogue
+                UpsertQuestPayload.TYPE,
+                UpsertQuestPayload.STREAM_CODEC,
+                AdminContentHandlers::handleUpsertQuest
+        );
+
+        registrar.playToServer(
+                UpsertCampaignPayload.TYPE,
+                UpsertCampaignPayload.STREAM_CODEC,
+                AdminContentHandlers::handleUpsertCampaign
+        );
+
+        registrar.playToServer(
+                CloseDialoguePayload.TYPE,
+                CloseDialoguePayload.STREAM_CODEC,
+                AdminContentHandlers::handleCloseDialogue
+        );
+        registrar.playToServer(
+                SetCampaignActivePayload.TYPE,
+                SetCampaignActivePayload.STREAM_CODEC,
+                AdminContentHandlers::handleSetCampaignActive
+        );
+        registrar.playToServer(
+                StartNpcQuestPayload.TYPE,
+                StartNpcQuestPayload.STREAM_CODEC,
+                AdminContentHandlers::handleStartNpcQuest
         );
 
         registrar.playToServer(

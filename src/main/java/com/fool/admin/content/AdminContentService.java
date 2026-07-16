@@ -2,6 +2,7 @@ package com.fool.admin.content;
 
 import com.fool.admin.FoolsAdmin;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.Identifier;
 import net.minecraft.server.level.ServerLevel;
 import org.jspecify.annotations.Nullable;
@@ -9,7 +10,6 @@ import org.jspecify.annotations.Nullable;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -24,7 +24,11 @@ public final class AdminContentService {
         TOO_MANY_WAYPOINTS,
         INVALID_COORDINATES,
         EMPTY_ZONE,
-        INVALID_DIALOGUE
+        INVALID_QUEST,
+        INVALID_DIALOGUE_SCRIPT,
+        INVALID_OBJECTIVE_TARGET,
+        TOO_MANY_QUESTS,
+        INVALID_PREREQUISITE
     }
 
     public record MutationResult(
@@ -32,7 +36,7 @@ public final class AdminContentService {
             @Nullable MutationError error,
             @Nullable BossDefinition boss,
             @Nullable NpcDefinition npc,
-            @Nullable DialogueDefinition dialogue
+            @Nullable QuestPoint quest
     ) {
         public static MutationResult bossSuccess(BossDefinition boss) {
             return new MutationResult(true, null, boss, null, null);
@@ -42,8 +46,8 @@ public final class AdminContentService {
             return new MutationResult(true, null, null, npc, null);
         }
 
-        public static MutationResult dialogueSuccess(DialogueDefinition dialogue) {
-            return new MutationResult(true, null, null, null, dialogue);
+        public static MutationResult questSuccess(QuestPoint quest) {
+            return new MutationResult(true, null, null, null, quest);
         }
 
         public static MutationResult failure(MutationError error) {
@@ -60,7 +64,7 @@ public final class AdminContentService {
 
     public static ContentSnapshot snapshot(ServerLevel level) {
         AdminContentSavedData data = get(level);
-        return new ContentSnapshot(data.bosses(), data.npcs(), data.dialogues());
+        return new ContentSnapshot(data.bosses(), data.npcs(), data.campaigns());
     }
 
     public static MutationResult upsertBoss(ServerLevel level, BossDefinition draft, int expectedRevision, boolean spawnEntity) {
@@ -145,14 +149,6 @@ public final class AdminContentService {
             return MutationResult.failure(MutationError.INVALID_REVISION);
         }
 
-        @Nullable String dialogueId = draft.dialogueId();
-        if (dialogueId == null) {
-            dialogueId = existing.map(NpcDefinition::dialogueId).orElse(null);
-        }
-        if (!isValidDialogueReference(level, dialogueId)) {
-            return MutationResult.failure(MutationError.INVALID_DIALOGUE);
-        }
-
         BlockPos spawn = WorldPositionResolver.resolveSurface(level, draft.spawnX(), draft.spawnZ());
         List<Waypoint> resolvedWaypoints = new ArrayList<>();
         for (Waypoint waypoint : draft.waypoints()) {
@@ -171,7 +167,6 @@ public final class AdminContentService {
                 resolvedWaypoints,
                 draft.repeatPath(),
                 draft.stationary(),
-                dialogueId,
                 existing.map(NpcDefinition::boundEntityUuid).orElse(null),
                 revision
         );
@@ -184,34 +179,87 @@ public final class AdminContentService {
         return MutationResult.npcSuccess(saved);
     }
 
-    public static MutationResult upsertDialogue(ServerLevel level, DialogueDefinition draft, int expectedRevision, List<String> assignedNpcIds) {
+    public static MutationResult upsertCampaign(ServerLevel level, Campaign draft, int expectedRevision) {
         if (!isValidName(draft.name())) {
             return MutationResult.failure(MutationError.INVALID_NAME);
         }
-        if (!isValidDialogue(draft)) {
-            return MutationResult.failure(MutationError.INVALID_DIALOGUE);
+        AdminContentSavedData data = get(level);
+        Optional<Campaign> existing = data.campaign(draft.id());
+        if (existing.isPresent() && existing.get().revision() != expectedRevision) {
+            return MutationResult.failure(MutationError.INVALID_REVISION);
+        }
+        if (!isValidCampaignRequirements(data, draft)) {
+            return MutationResult.failure(MutationError.INVALID_PREREQUISITE);
+        }
+        Campaign saved = new Campaign(
+                draft.id(),
+                draft.name().trim(),
+                existing.map(Campaign::questPoints).orElse(List.of()),
+                draft.prerequisiteCampaignIds(),
+                draft.unlockAfterQuestKeys(),
+                existing.map(value -> value.revision() + 1).orElse(1)
+        );
+        data.putCampaign(saved);
+        return new MutationResult(true, null, null, null, null);
+    }
+
+    public static MutationResult upsertQuest(ServerLevel level, String campaignId, QuestPoint draft, int expectedRevision) {
+        if (!isValidName(draft.name())) {
+            return MutationResult.failure(MutationError.INVALID_NAME);
         }
 
         AdminContentSavedData data = get(level);
-        Optional<DialogueDefinition> existing = data.dialogue(draft.id());
+        Campaign campaign = data.campaign(campaignId).orElse(null);
+        if (campaign == null) {
+            return MutationResult.failure(MutationError.NOT_FOUND);
+        }
+        if (!data.quest(campaignId, draft.id()).isPresent() && campaign.questPoints().size() >= AdminContentConstants.MAX_QUEST_POINTS) {
+            return MutationResult.failure(MutationError.TOO_MANY_QUESTS);
+        }
+
+        Optional<QuestPoint> existing = data.quest(campaignId, draft.id());
         if (existing.isPresent() && existing.get().revision() != expectedRevision) {
             return MutationResult.failure(MutationError.INVALID_REVISION);
         }
 
+        if (!isValidObjectiveTarget(level, draft)) {
+            return MutationResult.failure(MutationError.INVALID_OBJECTIVE_TARGET);
+        }
+        if (!isValidPrerequisites(data, campaignId, draft)) {
+            return MutationResult.failure(MutationError.INVALID_PREREQUISITE);
+        }
+
+        DialogueScriptParser.ParseResult parseResult = DialogueScriptParser.parse(draft.dialogueScript());
+        if (!parseResult.success()) {
+            return MutationResult.failure(MutationError.INVALID_DIALOGUE_SCRIPT);
+        }
+
         int revision = existing.map(value -> value.revision() + 1).orElse(1);
-        List<DialogueLine> lines = draft.lines().stream()
-                .map(line -> new DialogueLine(line.text().trim(), line.delayTicks()))
-                .toList();
-        DialogueDefinition saved = new DialogueDefinition(
+        QuestPoint saved = new QuestPoint(
                 draft.id(),
                 draft.name().trim(),
-                lines,
+                clampCanvas(draft.canvasX()),
+                clampCanvas(draft.canvasY()),
+                draft.objectiveType(),
+                draft.targetNpcId(),
+                draft.targetBossId(),
+                draft.requiredItem(),
+                Math.clamp(draft.requiredCount(), 1, AdminContentConstants.MAX_REQUIRED_ITEM_COUNT),
+                List.copyOf(draft.prerequisiteIds()),
+                draft.dialogueScript(),
                 revision
         );
-        data.putDialogue(saved);
-        syncDialogueAssignments(level, saved.id(), assignedNpcIds);
-        FoolsAdmin.LOGGER.info("Saved dialogue {} and assigned it to {} NPC(s)", saved.id(), assignedNpcIds.size());
-        return MutationResult.dialogueSuccess(saved);
+        data.putQuest(campaignId, saved);
+        FoolsAdmin.LOGGER.info("Saved quest point {}", saved.id());
+        return MutationResult.questSuccess(saved);
+    }
+
+    public static MutationResult upsertQuest(ServerLevel level, QuestPoint draft, int expectedRevision) {
+        AdminContentSavedData data = get(level);
+        if (data.campaigns().isEmpty()) {
+            return MutationResult.failure(MutationError.NOT_FOUND);
+        }
+        return upsertQuest(level, data.campaigns().getFirst().id(), draft, expectedRevision);
     }
 
     public static MutationResult deleteBoss(ServerLevel level, String id) {
@@ -238,38 +286,46 @@ public final class AdminContentService {
         return MutationResult.npcSuccess(null);
     }
 
-    public static MutationResult deleteDialogue(ServerLevel level, String id) {
+    public static MutationResult deleteQuest(ServerLevel level, String id) {
         AdminContentSavedData data = get(level);
-        if (data.dialogue(id).isEmpty()) {
+        if (data.quest(id).isEmpty()) {
             return MutationResult.failure(MutationError.NOT_FOUND);
         }
-        for (NpcDefinition npc : data.npcsWithDialogue(id)) {
-            data.putNpc(npc.withDialogueId(null).withRevision(npc.revision() + 1));
+        for (QuestPoint quest : data.quests()) {
+            if (quest.prerequisiteIds().contains(id)) {
+                List<String> updated = new ArrayList<>(quest.prerequisiteIds());
+                updated.remove(id);
+                data.putQuest(quest.withPrerequisiteIds(updated).withRevision(quest.revision() + 1));
+            }
         }
-        data.removeDialogue(id);
-        return MutationResult.dialogueSuccess(null);
+        data.removeQuest(id);
+        return MutationResult.questSuccess(null);
+    }
+
+    public static MutationResult deleteCampaign(ServerLevel level, String id) {
+        AdminContentSavedData data = get(level);
+        if (data.campaign(id).isEmpty()) {
+            return MutationResult.failure(MutationError.NOT_FOUND);
+        }
+        data.removeCampaign(id);
+        for (Campaign campaign : data.campaigns()) {
+            List<String> prerequisiteCampaignIds = new ArrayList<>(campaign.prerequisiteCampaignIds());
+            prerequisiteCampaignIds.remove(id);
+            List<String> unlockAfterQuestKeys = new ArrayList<>(campaign.unlockAfterQuestKeys());
+            unlockAfterQuestKeys.removeIf(key -> key.startsWith(id + "/"));
+            if (!prerequisiteCampaignIds.equals(campaign.prerequisiteCampaignIds())
+                    || !unlockAfterQuestKeys.equals(campaign.unlockAfterQuestKeys())) {
+                data.putCampaign(campaign
+                        .withPrerequisiteCampaignIds(prerequisiteCampaignIds)
+                        .withUnlockAfterQuestKeys(unlockAfterQuestKeys)
+                        .withRevision(campaign.revision() + 1));
+            }
+        }
+        return new MutationResult(true, null, null, null, null);
     }
 
     public static String newId() {
         return UUID.randomUUID().toString();
-    }
-
-    private static void syncDialogueAssignments(ServerLevel level, String dialogueId, List<String> assignedNpcIds) {
-        AdminContentSavedData data = get(level);
-        Set<String> desired = new HashSet<>(assignedNpcIds);
-        for (NpcDefinition npc : data.npcs()) {
-            String current = npc.dialogueId();
-            boolean shouldAssign = desired.contains(npc.id());
-            if (dialogueId.equals(current) && !shouldAssign) {
-                NpcDefinition updated = npc.withDialogueId(null).withRevision(npc.revision() + 1);
-                data.putNpc(updated);
-                AdminEntityService.ensureManagedTag(level, updated);
-            } else if (shouldAssign && !dialogueId.equals(current)) {
-                NpcDefinition updated = npc.withDialogueId(dialogueId).withRevision(npc.revision() + 1);
-                data.putNpc(updated);
-                AdminEntityService.ensureManagedTag(level, updated);
-            }
-        }
     }
 
     private static boolean isValidName(String name) {
@@ -280,41 +336,89 @@ public final class AdminContentService {
         return !trimmed.isEmpty() && trimmed.length() <= AdminContentConstants.MAX_DISPLAY_NAME_LENGTH;
     }
 
-    private static boolean isValidDialogue(DialogueDefinition dialogue) {
-        if (dialogue.lines().isEmpty() || dialogue.lines().size() > AdminContentConstants.MAX_DIALOGUE_LINES) {
+    private static boolean isValidDwellTicks(int dwellTicks) {
+        return dwellTicks >= 0 && dwellTicks <= AdminContentConstants.MAX_WAYPOINT_DWELL_TICKS;
+    }
+
+    private static float clampCanvas(float value) {
+        return Math.clamp(value, AdminContentConstants.QUEST_CANVAS_MIN, AdminContentConstants.QUEST_CANVAS_MAX);
+    }
+
+    private static boolean isValidObjectiveTarget(ServerLevel level, QuestPoint quest) {
+        return switch (quest.objectiveType()) {
+            case TALK_TO_NPC -> quest.targetNpcId() != null && get(level).npc(quest.targetNpcId()).isPresent();
+            case ITEM_TO_NPC -> quest.targetNpcId() != null
+                    && get(level).npc(quest.targetNpcId()).isPresent()
+                    && quest.requiredItem() != null
+                    && BuiltInRegistries.ITEM.containsKey(quest.requiredItem());
+            case KILL_BOSS -> quest.targetBossId() != null && get(level).boss(quest.targetBossId()).isPresent();
+            case CLEAR_DUNGEON -> false;
+        };
+    }
+
+    private static boolean isValidCampaignRequirements(AdminContentSavedData data, Campaign draft) {
+        Set<String> prerequisiteCampaigns = new HashSet<>();
+        for (String campaignId : draft.prerequisiteCampaignIds()) {
+            if (campaignId == null || campaignId.isBlank() || campaignId.equals(draft.id())
+                    || !prerequisiteCampaigns.add(campaignId) || data.campaign(campaignId).isEmpty()) {
+                return false;
+            }
+        }
+        Set<String> unlockQuestKeys = new HashSet<>();
+        for (String questKey : draft.unlockAfterQuestKeys()) {
+            int separator = questKey == null ? -1 : questKey.indexOf('/');
+            if (separator <= 0 || separator == questKey.length() - 1 || !unlockQuestKeys.add(questKey)) {
+                return false;
+            }
+            String campaignId = questKey.substring(0, separator);
+            String questId = questKey.substring(separator + 1);
+            if (campaignId.equals(draft.id()) || data.quest(campaignId, questId).isEmpty()) {
+                return false;
+            }
+        }
+        return !hasCampaignCycle(data, draft, draft.id(), new HashSet<>());
+    }
+
+    private static boolean hasCampaignCycle(
+            AdminContentSavedData data,
+            Campaign draft,
+            String campaignId,
+            Set<String> visiting
+    ) {
+        if (!visiting.add(campaignId)) {
+            return true;
+        }
+        Campaign campaign = campaignId.equals(draft.id()) ? draft : data.campaign(campaignId).orElse(null);
+        if (campaign != null) {
+            for (String prerequisite : campaign.prerequisiteCampaignIds()) {
+                if (hasCampaignCycle(data, draft, prerequisite, visiting)) {
+                    return true;
+                }
+            }
+        }
+        visiting.remove(campaignId);
+        return false;
+    }
+
+    private static boolean isValidPrerequisites(AdminContentSavedData data, String campaignId, QuestPoint quest) {
+        if (quest.prerequisiteIds().size() > AdminContentConstants.MAX_QUEST_PREREQUISITES) {
             return false;
         }
-        for (DialogueLine line : dialogue.lines()) {
-            if (line.text() == null) {
+        Set<String> seen = new HashSet<>();
+        for (String prerequisiteId : quest.prerequisiteIds()) {
+            if (prerequisiteId == null || prerequisiteId.isBlank() || prerequisiteId.equals(quest.id())) {
                 return false;
             }
-            String trimmed = line.text().trim();
-            if (trimmed.isEmpty() || trimmed.length() > AdminContentConstants.MAX_DIALOGUE_LINE_LENGTH) {
+            if (!seen.add(prerequisiteId)) {
                 return false;
             }
-            if (!isValidDelayTicks(line.delayTicks())) {
+            if (data.quest(campaignId, prerequisiteId).isEmpty()) {
                 return false;
             }
         }
         return true;
     }
 
-    private static boolean isValidDialogueReference(ServerLevel level, @Nullable String dialogueId) {
-        if (dialogueId == null || dialogueId.isBlank()) {
-            return true;
-        }
-        return get(level).dialogue(dialogueId).isPresent();
-    }
-
-    private static boolean isValidDelayTicks(int delayTicks) {
-        return delayTicks >= AdminContentConstants.MIN_LINE_DELAY_TICKS
-                && delayTicks <= AdminContentConstants.MAX_LINE_DELAY_TICKS;
-    }
-
-    private static boolean isValidDwellTicks(int dwellTicks) {
-        return dwellTicks >= 0 && dwellTicks <= AdminContentConstants.MAX_WAYPOINT_DWELL_TICKS;
-    }
-
-    public record ContentSnapshot(List<BossDefinition> bosses, List<NpcDefinition> npcs, List<DialogueDefinition> dialogues) {
+    public record ContentSnapshot(List<BossDefinition> bosses, List<NpcDefinition> npcs, List<Campaign> campaigns) {
     }
 }
